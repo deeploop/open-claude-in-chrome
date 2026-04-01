@@ -42,9 +42,19 @@ function sendToExtension(tool, args) {
       pendingRequests.delete(id);
       reject(new Error("Tool request timed out after 60s"));
     }, 60000);
-    pendingRequests.set(id, { resolve, reject, timer });
+    pendingRequests.set(id, { resolve, reject, timer, tool, args, resent: false });
     const msg = JSON.stringify({ id, type: "tool_request", tool, args }) + "\n";
-    nativeHostSocket.write(msg);
+    const ok = nativeHostSocket.write(msg);
+    if (!ok) {
+      // Socket buffer full or broken — wait for drain or error
+      nativeHostSocket.once("error", () => {
+        if (pendingRequests.has(id)) {
+          clearTimeout(timer);
+          pendingRequests.delete(id);
+          reject(new Error("Browser extension connection lost while sending request."));
+        }
+      });
+    }
   });
 }
 
@@ -108,9 +118,12 @@ process.stdin.on("end", shutdown);
 process.stdin.resume(); // Ensure 'end' fires even though StdioServerTransport also reads
 
 const tcpServer = net.createServer((socket) => {
-  // Only allow one native host connection at a time
+  // Reject new connections if we already have an active one.
+  // This prevents multiple browser profiles from fighting over the connection.
   if (nativeHostSocket && !nativeHostSocket.destroyed) {
-    nativeHostSocket.destroy();
+    socket.end(JSON.stringify({ type: "error", error: "Another browser profile is already connected. Disable the extension in other profiles." }) + "\n");
+    socket.destroy();
+    return;
   }
   nativeHostSocket = socket;
   let buffer = Buffer.alloc(0);
@@ -147,12 +160,28 @@ const tcpServer = net.createServer((socket) => {
 
   socket.on("close", () => {
     if (nativeHostSocket === socket) nativeHostSocket = null;
-    // Reject all pending requests
-    for (const [id, { reject, timer }] of pendingRequests) {
-      clearTimeout(timer);
-      reject(new Error("Native host disconnected"));
+    // Wait briefly for a new connection before rejecting pending requests.
+    // The extension's service worker may restart and reconnect within seconds.
+    if (pendingRequests.size > 0) {
+      setTimeout(() => {
+        // If a new connection arrived and we can resend, do so
+        if (nativeHostSocket && !nativeHostSocket.destroyed) {
+          for (const [id, entry] of pendingRequests) {
+            if (entry.resent) continue;
+            entry.resent = true;
+            const msg = JSON.stringify({ id, type: "tool_request", tool: entry.tool, args: entry.args }) + "\n";
+            nativeHostSocket.write(msg);
+          }
+        } else {
+          // No reconnection — reject everything
+          for (const [id, { reject, timer }] of pendingRequests) {
+            clearTimeout(timer);
+            reject(new Error("Native host disconnected"));
+          }
+          pendingRequests.clear();
+        }
+      }, 5000);
     }
-    pendingRequests.clear();
   });
 });
 
