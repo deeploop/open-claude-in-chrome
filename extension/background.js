@@ -1,6 +1,11 @@
 // Background service worker for Unblocked Chrome extension.
 // Handles: native messaging, CDP via chrome.debugger, tool dispatch, tab group management.
 
+// Prevent unhandled rejections from killing the service worker
+self.addEventListener("unhandledrejection", (event) => {
+  event.preventDefault();
+});
+
 const NATIVE_HOST_NAME = "com.anthropic.unblocked_chrome";
 
 // --- State ---
@@ -366,8 +371,16 @@ const toolHandlers = {
       await chrome.tabs.goForward(tabId);
     } else {
       let targetUrl = url;
-      if (!targetUrl.match(/^https?:\/\//i) && !targetUrl.startsWith("about:") && !targetUrl.startsWith("chrome:")) {
+      // Strip any malformed protocol prefix before normalizing
+      if (!targetUrl.match(/^https?:\/\//i) && !targetUrl.startsWith("about:") && !targetUrl.startsWith("chrome:") && !targetUrl.startsWith("brave:")) {
+        // Remove any partial/broken protocol prefix (e.g., "hps://", "http:/", "ht://")
+        targetUrl = targetUrl.replace(/^[a-z]{1,5}:\/+/i, "");
         targetUrl = "https://" + targetUrl;
+      }
+      try {
+        new URL(targetUrl); // Validate URL before passing to Chrome
+      } catch {
+        return { content: [{ type: "text", text: `Invalid URL: "${url}". Could not parse as a valid URL.` }] };
       }
       await chrome.tabs.update(tabId, { url: targetUrl });
     }
