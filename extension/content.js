@@ -200,10 +200,11 @@
 
       if (shouldShow && visible) {
         const ref = getOrAssignRef(el);
-        let line = `${indent}[${ref}] `;
+        let line = `${indent}`;
 
         if (role) line += `${role}`;
         if (name) line += ` "${name.substring(0, 100)}"`;
+        line += ` [${ref}]`;
 
         // Extra info for specific elements
         if (tag === "a" && el.href) line += ` href="${el.href}"`;
@@ -245,8 +246,6 @@
       else return `Error: ref_id "${startRefId}" not found or element was garbage collected.`;
     }
 
-    // Page info header
-    append(`Page: ${document.title}\nURL: ${location.href}\n\n`);
     walk(root, 0, "");
     return output;
   }

@@ -652,7 +652,16 @@ const toolHandlers = {
       },
     });
 
-    return { content: [{ type: "text", text: resp?.result || "Error: Could not generate accessibility tree" }] };
+    let tree = resp?.result || "Error: Could not generate accessibility tree";
+    // Append viewport dimensions so Claude knows the coordinate space
+    try {
+      await ensureAttached(tabId);
+      const vp = await cdp(tabId, "Runtime.evaluate", {
+        expression: "window.innerWidth + 'x' + window.innerHeight",
+      });
+      if (vp?.result?.value) tree += `\n\nViewport: ${vp.result.value}`;
+    } catch {}
+    return { content: [{ type: "text", text: tree }] };
   },
 
   async get_page_text(args) {
