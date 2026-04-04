@@ -197,9 +197,33 @@ const tcpServer = net.createServer((socket) => {
 // Kill any stale server, then bind
 await killStaleServer();
 
-tcpServer.on("error", (err) => {
+tcpServer.on("error", async (err) => {
   if (err.code === "EADDRINUSE") {
-    process.stderr.write(`Port ${TCP_PORT} still in use after killing stale server. Retrying...\n`);
+    process.stderr.write(`Port ${TCP_PORT} still in use after killing stale server. Trying lsof fallback...\n`);
+    // Pidfile-based kill missed it — use lsof as a last resort.
+    // Only kill if the process is a Node process running our mcp-server script,
+    // to avoid killing unrelated processes or other sessions on a different port.
+    try {
+      const { execSync } = await import("node:child_process");
+      const lsofOut = execSync(`lsof -ti :${TCP_PORT}`, { encoding: "utf-8" }).trim();
+      if (lsofOut) {
+        for (const pidStr of lsofOut.split("\n")) {
+          const pid = parseInt(pidStr, 10);
+          if (!pid || pid === process.pid) continue;
+          try {
+            // Verify it's a Node process running an mcp-server before killing
+            const cmd = execSync(`ps -p ${pid} -o command=`, { encoding: "utf-8" }).trim();
+            if (cmd.includes("node") || cmd.includes("mcp-server")) {
+              process.stderr.write(`Killing orphaned MCP server PID ${pid} (${cmd})\n`);
+              process.kill(pid, "SIGTERM");
+            } else {
+              process.stderr.write(`PID ${pid} on port does not look like an MCP server (${cmd}), skipping\n`);
+            }
+          } catch { /* process already gone */ }
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    } catch { /* lsof not available or no process found */ }
     setTimeout(() => {
       tcpServer.close();
       tcpServer.listen(TCP_PORT, "127.0.0.1");
