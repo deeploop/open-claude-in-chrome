@@ -133,6 +133,47 @@ All 18 tools, identical to Claude in Chrome:
 | `switch_browser` | Switch browser (stub) |
 | `update_plan` | Present plan (auto-approved) |
 
+## Updating After Code Changes
+
+No build step. All files are plain JavaScript. After pulling or editing code:
+
+| What changed | What to do |
+|---|---|
+| `extension/background.js` or `extension/content.js` or `extension/manifest.json` | Reload the extension: `brave://extensions` > click the reload icon |
+| `host/mcp-server.js` | Kill stale servers and reconnect: `pkill -f "node.*mcp-server"` then `/mcp` in Claude Code |
+| `host/native-host.js` | Restart the browser (close all windows, reopen) |
+| `install.sh` or native host name changed | Re-run `./install.sh <extension-id>`, restart browser, re-add MCP |
+
+### Quick reset (nuclear option)
+
+If things are broken and you're not sure why:
+
+```bash
+# 1. Kill all MCP servers
+pkill -f "node.*mcp-server"
+
+# 2. Re-run install
+./install.sh <your-extension-id>
+
+# 3. Restart browser (close all windows, reopen)
+
+# 4. Reload extension in brave://extensions
+
+# 5. Reconnect in Claude Code
+# /mcp
+```
+
+## Multiple Sessions
+
+Multiple Claude Code sessions can share the same browser extension. The first session becomes the "primary" (owns the TCP port), and subsequent sessions connect as clients through the primary. All sessions can use the browser simultaneously.
+
+If a session disconnects, kill stale servers and reconnect:
+
+```bash
+pkill -f "node.*mcp-server"
+# then /mcp in each Claude Code session
+```
+
 ## Troubleshooting
 
 ### Extension not connecting
@@ -158,6 +199,16 @@ The MCP server started but the native host hasn't connected. Try:
 1. Open any webpage (wakes the service worker)
 2. Check service worker logs: `chrome://extensions` > "Inspect views: service worker"
 3. Verify `host/native-host-wrapper.sh` exists
+
+### Tools fail immediately after reconnect
+
+Stale MCP server processes from previous sessions may be holding the port. Fix:
+
+```bash
+pkill -f "node.*mcp-server"
+```
+
+Then `/mcp` in Claude Code to reconnect. The fresh server will bind the port and accept the native host connection.
 
 ### Port conflict
 
