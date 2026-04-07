@@ -119,8 +119,6 @@ function shutdown() {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 process.on("SIGHUP", shutdown);
-process.stdin.on("end", shutdown);
-process.stdin.resume();
 
 // --- Primary mode: handle incoming TCP connections ---
 
@@ -693,7 +691,36 @@ server.tool(
   async (args) => callTool("upload_image", args)
 );
 
+// --- Load plugins from host/plugins/ directory ---
+
+async function loadPlugins() {
+  const pluginsDir = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")), "plugins");
+  try {
+    if (!fs.existsSync(pluginsDir)) return;
+    const files = fs.readdirSync(pluginsDir).filter(f => f.endsWith(".js") && !f.startsWith("_") && !f.startsWith("test"));
+    for (const file of files) {
+      try {
+        const pluginPath = path.join(pluginsDir, file);
+        const plugin = await import("file://" + pluginPath.replace(/\\/g, "/"));
+        if (typeof plugin.register === "function") {
+          plugin.register(server, sendToExtension, { z, textResult, imageResult, mixedResult, callTool });
+          process.stderr.write(`Plugin loaded: ${file}\n`);
+        }
+      } catch (err) {
+        process.stderr.write(`Plugin load error (${file}): ${err.message}\n`);
+      }
+    }
+  } catch {}
+}
+
+// --- Load plugins, then start MCP server ---
+
+await loadPlugins();
+
 // --- Start MCP server ---
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+// Shut down when Claude Code closes stdin (AFTER transport owns stdin)
+process.stdin.on("end", shutdown);

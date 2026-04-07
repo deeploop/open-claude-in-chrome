@@ -1,0 +1,9 @@
+{
+  "name": "com.anthropic.open_claude_in_chrome",
+  "description": "Open Claude in Chrome Native Messaging Host",
+  "path": "C:\\Users\\W11\\Documents\\GitHub\\open-claude-in-chrome\\host\\native-host-wrapper.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://gdokgdfbcdfbmonjpncgknblmmkmkdcd/"
+  ]
+}
